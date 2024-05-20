@@ -7,7 +7,7 @@ Bayesian neural network implementation using multi-layer perceptron (2 layers) a
 
 <!-- The Gaussian prior on each weight ${tex`w_i`}is ${tex`\prod_i N(w_i|\mu_ilog(1+exp(p_i)))`} where ${tex`\mu_i`} and ${tex`\p_i`} are variational parameters.  -->
 
-The Gaussian prior on each weight $$w_i$$ is $$\prod_i N(w_i|\mu_i*log(1+exp(p_i)))$$ where $$\mu_i$$ and $$\p_i$$ are variational parameters. 
+The Gaussian prior on each weight $w_i$ is $$q(w_i) = N(w_i|\mu_i*log(1+exp(p_i)))$$ where $\mu_i$ and $\p_i$ are variational parameters. 
 
 # Result
 train accuracy:  0.93828005
