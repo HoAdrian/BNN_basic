@@ -5,13 +5,15 @@
 # BNN_basic
 Bayesian neural network implementation using multi-layer perceptron (2 layers) and independent gaussian prior on each weight. Tested on a small dataset for binary class classification. 
 
-<!-- The Gaussian prior on each weight ${tex`w_i`}is ${tex`\prod_i N(w_i|\mu_ilog(1+exp(p_i)))`} where ${tex`\mu_i`} and ${tex`\p_i`} are variational parameters.  -->
+The Gaussian prior on each weight $w_i$ is $$q(w_i) = N(w_i|\mu_i*\log(1+\exp(p_i)))$$ where $\mu_i$ and $p_i$ are variational parameters.
 
-The Gaussian prior on each weight $w_i$ is $$q(w_i) = N(w_i|\mu_i*log(1+exp(p_i)))$$ where $\mu_i$ and $p_i$ are variational parameters. 
+The loss function to be minimized is the negative variational lower bound:
+$$ L(w) = \sum_{n=1}^N E_{q(w)}[\log(p(y_n|f_w(x_n)))] - KL(q(w)||p(w))$$
+where $f_w$ is the neural network. Since the dataset is pretty small, I did not split the dataset into minibatch for stochastic optimization. 
 
 # Result
-train accuracy:  0.93828005
-test accuracy:  0.93263996
-within 1000 epochs
+train accuracy:  0.93828005 \\
+test accuracy:  0.93263996 \\
+within 1000 epochs \\
 
 See the figures for visualization
