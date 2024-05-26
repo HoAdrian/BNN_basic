@@ -14,9 +14,9 @@ NUM_POSTERIOR_SAMPLES = 1000
 
 '''
  result: 
-    max train accuracy:  0.93828005
-    max test accuracy:  0.93263996
-    within 1000 epochs
+    max train accuracy:  0.9635757
+    max test accuracy:  0.961684
+    within 200 epochs using a minibatch size of 100
 
 '''
 
@@ -108,22 +108,40 @@ class BNN(nn.Module):
         W2 = W[self.d*self.h:, :].T.reshape(num_samples, self.h,1)
         return W1, W2
     
+    # def old_kl_div(self, prior_mean, prior_cov):
+    #     '''
+    #     prior_mean: shape (total_num_weights,1)
+    #     prior_cov: shape (total_num_weights, total_num_weights), diagonal matrix (all weights are independent)
+
+    #     KL divergence between prior and approximate posterior KL(p||q)
+    #     '''
+    #     q_cov = self.cov_diagonal()
+    #     p_det = torch.prod(torch.diagonal(prior_cov))
+    #     q_det = torch.prod(torch.diagonal(q_cov))
+        
+    #     prior_cov_inv = torch.linalg.inv(prior_cov)
+    #     trace = 0.5*(torch.sum(torch.diagonal(torch.matmul(prior_cov_inv, q_cov))))
+    #     quadratic = 0.5*torch.matmul(torch.matmul((self.mu-prior_mean).T, prior_cov_inv), self.mu-prior_mean)
+        
+    #     return 0.5*torch.log(p_det)- 0.5*torch.log(q_det) - self.total_num_weights/2 + trace + quadratic
+    
     def kl_div(self, prior_mean, prior_cov):
         '''
         prior_mean: shape (total_num_weights,1)
         prior_cov: shape (total_num_weights, total_num_weights), diagonal matrix (all weights are independent)
 
-        KL divergence between prior and approximate posterior KL(p||q)
+        KL divergence between prior and approximate posterior KL(q||p)
         '''
         q_cov = self.cov_diagonal()
         p_det = torch.prod(torch.diagonal(prior_cov))
         q_det = torch.prod(torch.diagonal(q_cov))
         
         prior_cov_inv = torch.linalg.inv(prior_cov)
-        trace = 0.5*(torch.sum(torch.diagonal(torch.matmul(prior_cov_inv, q_cov))))
-        quadratic = 0.5*torch.matmul(torch.matmul((self.mu-prior_mean).T, prior_cov_inv), self.mu-prior_mean)
+        trace = torch.sum(torch.diagonal(torch.matmul(prior_cov_inv, q_cov)))
+        quadratic = torch.matmul(torch.matmul((self.mu-prior_mean).T, prior_cov_inv), self.mu-prior_mean)
         
-        return 0.5*torch.log(p_det)- 0.5*torch.log(q_det) - self.total_num_weights/2 + trace + quadratic
+        return (torch.log(p_det+1e-5) - torch.log(q_det+1e-5) - self.total_num_weights + trace + quadratic)*0.5
+        
         
     def variational_lower_bound(self, X, y, prior_mean, prior_cov, num_epsilon_samples=NUM_POSTERIOR_SAMPLES):
         '''
@@ -137,13 +155,13 @@ class BNN(nn.Module):
 
         out_prob = self.forward(X, W1, W2) #(num_samples, N,1)
         y = y.unsqueeze(0) #(1,N,1)
-        log_likelihoods = torch.sum(y*torch.log(out_prob+1e-6) + (1-y)*torch.log(1-out_prob+1e-6), dim=1) #(num_samples,1)
+        log_likelihoods = torch.sum(y*torch.log(out_prob+1e-5) + (1-y)*torch.log(1-out_prob+1e-5), dim=1) #(num_samples,1)
 
         expected_log_likelihood = torch.mean(log_likelihoods)
 
-        print("___expected_log_likelihood", expected_log_likelihood.item())
+        #print("___expected_log_likelihood", expected_log_likelihood.item())
 
-        return expected_log_likelihood + kl
+        return expected_log_likelihood - kl
 
     
 def test(test_data, model):
@@ -174,10 +192,7 @@ def train(train_data, test_data, model, prior_params, num_epochs, lr):
     for epoch in range(num_epochs):
         optimizer.zero_grad()
 
-        # print("mu: ", model.mu)
-        # print("p: ", model.p)
         loss = -model.variational_lower_bound(X, y, prior_mean, prior_cov)[0,0]
-        # print("kk", loss.shape)
 
         log_pred_ll, pred_ll, accuracy = test(test_data, model)
         print("loss", loss)
@@ -191,10 +206,76 @@ def train(train_data, test_data, model, prior_params, num_epochs, lr):
         loss.backward()
         optimizer.step()
 
-        if epoch%500==0:
+        if epoch%100==0:
             print(f"epoch: {epoch}, loss: {loss}")
             
     return model, train_log_pred_lls, train_accuracies, test_log_pred_lls, test_accuracies
+
+
+def train_minibatch(train_data, test_data, model, prior_params, num_epochs, lr, batch_size):
+    '''
+    train_data and test_data: list of [X,y]
+    model: BNN model
+    prior_params: [prior_mean, prior_cov]
+    num_epochs: int
+    lr: float
+    batch_size: size of each minibatch
+
+    return: trained model
+    '''
+    X, y = train_data
+    
+    N = len(X)
+    assert(batch_size<=N)
+    num_mini_batches = (int)(np.floor(N/batch_size))
+    is_divisible = (N%batch_size)==0
+    
+    prior_mean, prior_cov = prior_params
+    optimizer = optim.Adam(model.parameters(), lr=lr)
+    train_accuracies = []
+    train_log_pred_lls = []
+    test_accuracies = []
+    test_log_pred_lls = []
+    for epoch in range(num_epochs):
+        perm = np.random.permutation(N)
+        shuffled_X = X[perm]
+        shuffled_y = y[perm]
+        
+        for k in range(num_mini_batches):
+            mini_X = shuffled_X[batch_size*k:batch_size*(k+1), :]
+            mini_y = shuffled_y[batch_size*k:batch_size*(k+1), :]
+        
+            optimizer.zero_grad()
+            loss = -model.variational_lower_bound(mini_X, mini_y, prior_mean, prior_cov)[0,0]
+            
+            loss.backward()
+            optimizer.step()
+            
+        if not is_divisible:
+            mini_X = shuffled_X[batch_size*(num_mini_batches):, :]
+            mini_y = shuffled_y[batch_size*(num_mini_batches):, :]
+        
+            optimizer.zero_grad()
+            loss = -model.variational_lower_bound(mini_X, mini_y, prior_mean, prior_cov)[0,0]
+            
+            loss.backward()
+            optimizer.step()
+            
+
+        log_pred_ll, pred_ll, accuracy = test(test_data, model)
+        test_log_pred_lls.append(log_pred_ll)
+        test_accuracies.append(accuracy)
+
+        log_pred_ll, pred_ll, accuracy = test(train_data, model)
+        train_log_pred_lls.append(log_pred_ll)
+        train_accuracies.append(accuracy)
+
+        if epoch%10==0:
+            print(f"epoch: {epoch}, loss: {loss} train_acc:{train_accuracies[-1]} test_acc:{test_accuracies[-1]}")
+            
+    return model, train_log_pred_lls, train_accuracies, test_log_pred_lls, test_accuracies
+
+
 
 
 
@@ -203,13 +284,14 @@ def train(train_data, test_data, model, prior_params, num_epochs, lr):
 if __name__=="__main__":
     train_data = load_csv_data(data_path="data/bank-note/train.csv", preppend_one=True, remove_first_row=False)
     test_data = load_csv_data(data_path="data/bank-note/test.csv", preppend_one=True, remove_first_row=False)
-    num = 100
-    X_train = train_data[:num,:-1] #(N,5)
-    y_train = train_data[:num,-1].reshape((-1,1)) #(N,1)
-    X_test = test_data[:num,:-1] #(N,5)
-    y_test = test_data[:num,-1].reshape((-1,1)) #(N,1)
+    X_train = train_data[:,:-1] #(N,5)
+    y_train = train_data[:,-1].reshape((-1,1)) #(N,1)
+    X_test = test_data[:,:-1] #(N,5)
+    y_test = test_data[:,-1].reshape((-1,1)) #(N,1)
     
     N,d = X_train.shape
+    batch_size = 100
+    num_epochs = 300
 
     device="cpu"
     
@@ -220,16 +302,13 @@ if __name__=="__main__":
 
     data_train = [X_train, y_train]
     data_test = [X_test, y_test]
-    # hidden_dims = [10,20,50]
-    # activations = [torch.tanh, F.relu]
-    hidden_dims = [50]
-    activations = [F.relu]
+    
+    
+    hidden_dims = [50] # [10,20,50]
+    activations = [F.relu] # [torch.tanh, F.relu]
 
-    lr = 1e-3
-    #lr = 0.5e-3
-    #lr = 1e-4
-    #lr = 1e-5
-    epochs = [x for x in range(1000)]
+    lr = 1e-3 #0.5e-3 #1e-4 #1e-5
+    epochs = [x for x in range(num_epochs)]
     os.makedirs("./models", exist_ok=True)
     act_names = ["tanh", "relu"]
     for i, h in enumerate(hidden_dims):
@@ -238,8 +317,9 @@ if __name__=="__main__":
             model = BNN(in_dim=d, hidden_dim=h, activation=activation).to(device)
             prior_mean = torch.zeros(model.total_num_weights,1).to(device)
             prior_cov = torch.eye(model.total_num_weights).to(device)
-            trained_model, train_log_pred_lls, train_accuracies, test_log_pred_lls, test_accuracies = train(data_train, data_test, model, [prior_mean, prior_cov], num_epochs=1000, lr=lr)
-            torch.save(trained_model.state_dict(), f"./models/bnn_{i}_{j}")
+            # trained_model, train_log_pred_lls, train_accuracies, test_log_pred_lls, test_accuracies = train(data_train, data_test, model, [prior_mean, prior_cov], num_epochs=1000, lr=lr)
+            trained_model, train_log_pred_lls, train_accuracies, test_log_pred_lls, test_accuracies = train_minibatch(data_train, data_test, model, [prior_mean, prior_cov], num_epochs=len(epochs), lr=lr, batch_size=batch_size)
+            #torch.save(trained_model.state_dict(), f"./models/bnn_{i}_{j}")
             train_log_pred_lls = [x.cpu().detach().numpy() for x in train_log_pred_lls]
             test_log_pred_lls = [x.cpu().detach().numpy() for x in test_log_pred_lls]
             train_accuracies = [x.cpu().detach().numpy() for x in train_accuracies]
@@ -255,5 +335,20 @@ if __name__=="__main__":
             
             plot_xy_curves(epochs, ys_list=[train_log_pred_lls, test_log_pred_lls], labels_list=["train", "test"], xlim=None, ylim=None, x_label="epoch", y_label="log predictive likelihood", title="log predictive likelihood", path=f"./figures/hw5/BNN", name=f"nll_bnn_{i}_{j}", vis=False)
             plot_xy_curves(epochs, ys_list=[train_accuracies, test_accuracies], labels_list=["train", "test"], xlim=None, ylim=None, x_label="epoch", y_label="accuracy", title="accuracy", path=f"./figures/hw5/BNN", name=f"acc_bnn_{i}_{j}", vis=False)
-            
-           
+    
+    
+    
+    ## testing minbatch      
+    # a = np.array([[100,100], [200,200], [300,300], [400,400], [500,500]])
+    # N = len(a)
+    # batch_size = 2
+    # assert(batch_size<=N)
+    # perm = np.random.permutation(N)
+    # a = a[perm]
+    # num_mini_batches = (int)(np.floor(N/batch_size))
+    # print(num_mini_batches)
+    # for k in range(num_mini_batches):
+    #     print(a[batch_size*k:batch_size*(k+1), :])
+        
+    # if N%batch_size!=0:
+    #     print(a[batch_size*(num_mini_batches):, :])
