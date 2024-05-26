@@ -24,7 +24,7 @@ class BNN(nn.Module):
     '''
     Bayesian Neural Network for classification
     
-    Assume that the variational sposterior and prior of weights is fully factorized
+    Assume that the variational posterior fully factorized and the prior is standard Normal
     '''
     def __init__(self, in_dim, hidden_dim, activation):
         super(BNN, self).__init__()

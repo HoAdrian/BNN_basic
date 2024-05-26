@@ -3,9 +3,9 @@
 </script>
 
 # BNN_basic
-Bayesian neural network implementation using multi-layer perceptron (2 layers) and independent gaussian prior on each weight. Tested on a small dataset for binary class classification. The dataset consists of 872 training examples and 500 testing examples. 
+Bayesian neural network implementation using multi-layer perceptron (2 layers) and an approximate gaussian posterior on each weight. Tested on a small dataset for binary class classification. The dataset consists of 872 training examples and 500 testing examples. 
 
-The Gaussian prior on each weight $w_i$ is $$q(w_i) = N(w_i|\mu_i*\log(1+\exp(p_i)))$$ where $\mu_i$ and $p_i$ are variational parameters.
+The approximate Gaussian posterior on each weight $w_i$ is $$q(w_i) = N(w_i|\mu_i*\log(1+\exp(p_i)))$$ where $\mu_i$ and $p_i$ are variational parameters. The prior on the weights is the standard Gaussian distribution. 
 
 The function to be maximized is the variational lower bound:
 ![var_low_bound](https://github.com/HoAdrian/BNN_basic/blob/main/images/var_low_bd.png)
